@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ORBITAL // Satellite Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root {
+    --bg: #05070a;
+    --earth: #f2c744;
+    --earth-dim: #6b5a1e;
+    --continent: #fff4d6;
+    --cyan: #00e5ff;
+    --cyan-dim: #0a5560;
+    --magenta: #ff2d78;
+    --amber: #ffb020;
+    --silver: #d8e4e8;
+    --text-dim: #6f8a94;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--cyan);
+    font-family: 'JetBrains Mono', monospace;
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+  }
+
+  #app {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #globe-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 229, 255, 0.02) 0px,
+      rgba(0, 229, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    mix-blend-mode: screen;
+  }
+
+  .vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    box-shadow: inset 0 0 180px rgba(0,0,0,0.85);
+  }
+
+  .hud-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 20px 28px;
+    pointer-events: none;
+    z-index: 15;
+  }
+
+  .hud-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 20px;
+    letter-spacing: 4px;
+    color: var(--cyan);
+    text-shadow: 0 0 12px rgba(0,229,255,0.5);
+  }
+
+  .hud-title span {
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 2px;
+    display: block;
+    margin-top: 4px;
+  }
+
+  .hud-clock {
+    text-align: right;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    pointer-events: auto;
+  }
+
+  .hud-clock .time {
+    font-size: 22px;
+    color: var(--cyan);
+    letter-spacing: 2px;
+  }
+
+  .tz-select {
+    margin-top: 6px;
+    background: rgba(10,15,20,0.7);
+    border: 1px solid var(--cyan-dim);
+    color: var(--cyan);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 6px;
+    letter-spacing: 1px;
+  }
+
+  .solar-toggle {
+    display: block;
+    margin-top: 8px;
+    background: rgba(10,15,20,0.7);
+    border: 1px solid var(--cyan-dim);
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    padding: 6px 10px;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .solar-toggle:hover { color: var(--cyan); border-color: var(--cyan); }
+  .solar-toggle.on { color: var(--bg); background: var(--cyan); border-color: var(--cyan); }
+
+  .scale-note {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    max-width: 280px;
+    background: rgba(10, 15, 20, 0.55);
+    border: 1px solid var(--cyan-dim);
+    padding: 10px 14px;
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    letter-spacing: 0.3px;
+    display: none;
+    z-index: 10;
+    transition: opacity 0.2s;
+  }
+  .scale-note.visible { display: block; }
+  .scale-note.auto-hidden { opacity: 0; pointer-events: none; }
+
+  .celestial-label {
+    position: absolute;
+    transform: translate(-50%, -140%);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--continent);
+    background: rgba(5, 7, 10, 0.55);
+    padding: 2px 6px;
+    border: 1px solid rgba(255, 244, 214, 0.25);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .corner {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border: 1.5px solid var(--cyan);
+    opacity: 0.55;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .corner.tl { top: 14px; left: 14px; border-right: none; border-bottom: none; }
+  .corner.tr { top: 14px; right: 14px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 14px; left: 14px; border-right: none; border-top: none; }
+  .corner.br { bottom: 14px; right: 14px; border-left: none; border-top: none; }
+
+  .sat-list {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    width: 240px;
+    max-height: 45vh;
+    overflow-y: auto;
+    background: rgba(10, 15, 20, 0.55);
+    border: 1px solid var(--cyan-dim);
+    padding: 12px 0;
+    backdrop-filter: blur(2px);
+    z-index: 10;
+    transition: opacity 0.2s;
+  }
+
+  /* Hidden (not just visually faded) while the detail panel is open, on
+     the side it would otherwise overlap - this is what was causing the
+     close button to become unreachable, especially on shorter screens
+     where the list grows tall enough to sit under the panel's controls. */
+  .sat-list.auto-hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .sat-list-header {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    padding: 0 14px 10px;
+    border-bottom: 1px solid var(--cyan-dim);
+    margin-bottom: 6px;
+  }
+
+  .sat-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .sat-item:hover {
+    background: rgba(0, 229, 255, 0.07);
+    color: var(--cyan);
+  }
+
+  .sat-item.active {
+    background: rgba(0, 229, 255, 0.1);
+    color: var(--cyan);
+  }
+
+  .sat-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cyan);
+    flex-shrink: 0;
+    box-shadow: 0 0 6px var(--cyan);
+  }
+
+  .sat-item.active .sat-dot {
+    background: var(--magenta);
+    box-shadow: 0 0 6px var(--magenta);
+  }
+
+  .sat-item.jwst .sat-dot {
+    background: var(--silver);
+    box-shadow: 0 0 6px var(--silver);
+  }
+
+  .detail-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 380px;
+    background: rgba(6, 9, 12, 0.9);
+    border-left: 1px solid var(--cyan-dim);
+    backdrop-filter: blur(4px);
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    z-index: 30;
+  }
+
+  .detail-panel.open {
+    transform: translateX(0);
+  }
+
+  .detail-header {
+    padding: 24px 22px 16px;
+    border-bottom: 1px solid var(--cyan-dim);
+    position: relative;
+  }
+
+  .detail-close {
+    position: absolute;
+    top: 20px;
+    right: 18px;
+    background: none;
+    border: 1px solid var(--cyan-dim);
+    color: var(--text-dim);
+    width: 26px;
+    height: 26px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .detail-close:hover { color: var(--magenta); border-color: var(--magenta); }
+
+  .detail-eyebrow {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--magenta);
+    margin-bottom: 6px;
+  }
+
+  .detail-name {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 20px;
+    color: var(--cyan);
+    letter-spacing: 1px;
+  }
+
+  .detail-body {
+    padding: 18px 22px;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-box {
+    border: 1px solid var(--cyan-dim);
+    padding: 10px 12px;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 5px;
+  }
+
+  .stat-value {
+    font-size: 14px;
+    color: var(--cyan);
+    letter-spacing: 0.5px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    margin: 20px 0 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--cyan-dim);
+  }
+
+  .filter-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .filter-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    padding: 5px 10px;
+    border: 1px solid var(--cyan-dim);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .filter-chip:hover { color: var(--cyan); border-color: var(--cyan); }
+
+  .filter-chip.active {
+    color: var(--bg);
+    background: var(--cyan);
+    border-color: var(--cyan);
+  }
+
+  .image-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .image-tile {
+    aspect-ratio: 1;
+    border: 1px solid var(--cyan-dim);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 6px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+
+  .image-tile:hover { border-color: var(--cyan); }
+
+  .tile-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .tile-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    padding: 2px 5px;
+    background: rgba(5,7,10,0.85);
+    border-radius: 2px;
+  }
+
+  .tile-label.spiral { color: var(--cyan); border: 1px solid var(--cyan-dim); }
+  .tile-label.elliptical { color: var(--amber); border: 1px solid rgba(255,176,32,0.35); }
+  .tile-label.anomaly { color: var(--magenta); border: 1px solid rgba(255,45,120,0.35); }
+
+  .tile-confidence {
+    font-size: 9px;
+    color: var(--text-dim);
+    background: rgba(5,7,10,0.85);
+    padding: 2px 5px;
+  }
+
+  .tile-time {
+    font-size: 9px;
+    color: var(--text-dim);
+    background: rgba(5,7,10,0.85);
+    padding: 2px 5px;
+    align-self: flex-start;
+  }
+
+  .placeholder-note {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-top: 14px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--cyan-dim); }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <canvas id="globe-canvas"></canvas>
+  <div id="celestial-labels" style="position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:6;"></div>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+
+  <div class="hud-top">
+    <div class="hud-title">
+      ORBITAL
+      <span>REAL-TIME SATELLITE IMAGERY NETWORK</span>
+    </div>
+    <div class="hud-clock">
+      <div id="tz-label">UTC+0</div>
+      <div class="time" id="clock">--:--:--</div>
+      <select class="tz-select" id="tz-select"></select>
+      <button class="solar-toggle" id="solar-toggle">SOLAR SYSTEM: OFF</button>
+    </div>
+  </div>
+
+  <div class="sat-list" id="tracked-list">
+    <div class="sat-list-header">TRACKED OBJECTS</div>
+    <div id="sat-list-items"></div>
+  </div>
+
+  <div class="sat-list" id="celestial-list" style="display:none; bottom: auto; top: 100px; left: auto; right: 24px;">
+    <div class="sat-list-header">CELESTIAL BODIES (TRUE SCALE)</div>
+    <div id="celestial-list-items"></div>
+  </div>
+
+  <div class="scale-note" id="scale-note">
+    True-to-scale sizes and distances (same km-to-unit ratio as Earth).
+    Scroll to zoom - even the Moon is ~60 Earth-radii away, and the Sun
+    is roughly 23,000 Earth-radii away, so expect to zoom out a lot.
+    Directions shown are illustrative, not live real-time positions.
+  </div>
+
+  <div class="detail-panel" id="detail-panel">
+    <div class="detail-header">
+      <button class="detail-close" id="detail-close">×</button>
+      <div class="detail-eyebrow" id="detail-eyebrow">SELECTED OBJECT</div>
+      <div class="detail-name" id="detail-name">—</div>
+    </div>
+    <div class="detail-body">
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="stat-label">LATITUDE</div>
+          <div class="stat-value" id="stat-lat">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">LONGITUDE</div>
+          <div class="stat-value" id="stat-lon">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">ALTITUDE</div>
+          <div class="stat-value" id="stat-alt">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">VELOCITY</div>
+          <div class="stat-value" id="stat-vel">—</div>
+        </div>
+      </div>
+
+      <div class="section-label">SORTED IMAGE CAPTURES</div>
+      <div class="filter-row" id="filter-row"></div>
+      <div class="image-grid" id="image-grid"></div>
+      <div class="placeholder-note" id="data-source-note">
+        Image tiles are placeholder data. JWST's tiles switch to real,
+        newly-classified imagery automatically once the classifier
+        pipeline has run at least once.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  const CYAN = 0x00e5ff;
+  const MAGENTA = 0xff2d78;
+  const AMBER = 0xffb020;
+  const EARTH = 0xf2c744;
+  const CONTINENT = 0xfff4d6;
+  const SILVER = 0xd8e4e8;
+
+  // ---------- Scene setup ----------
+  const canvas = document.getElementById('globe-canvas');
+  // logarithmicDepthBuffer is required once objects span a range from
+  // Earth-radius scale (~2 units) up to real solar-system distances
+  // (~1,000,000+ units) in the same scene - without it, distant objects
+  // z-fight / render incorrectly because standard depth buffers lose
+  // precision over that large a ratio.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, logarithmicDepthBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.05, 3000000);
+
+  // Orbit-style camera control. Horizontal drag is intentionally inverted
+  // (dragging the mouse left rotates the scene to the right) per request;
+  // vertical drag stays in the natural (non-inverted) direction.
+  // Zoom is multiplicative (not additive) so the same scroll gesture works
+  // sensibly whether you're at satellite scale (~3 units) or solar-system
+  // scale (~1,000,000+ units) - additive zoom would be unusably slow at
+  // large distances and unusably twitchy at small ones.
+  let camAngleX = 0.15, camAngleY = 0.5, camDist = 7.5;
+  const CAM_MIN = 3.2, CAM_MAX = 2500000;
+  let isDragging = false, lastX = 0, lastY = 0, dragMoved = false;
+  canvas.addEventListener('mousedown', (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; dragMoved = false; });
+  window.addEventListener('mouseup', () => { isDragging = false; });
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    dragMoved = true;
+    camAngleY -= (e.clientX - lastX) * 0.005; // inverted horizontal
+    camAngleX += (e.clientY - lastY) * 0.005; // natural vertical
+    camAngleX = Math.max(-1.3, Math.min(1.3, camAngleX));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  canvas.addEventListener('wheel', (e) => {
+    const factor = Math.exp(e.deltaY * 0.0015);
+    camDist = Math.max(CAM_MIN, Math.min(CAM_MAX, camDist * factor));
+  }, { passive: true });
+
+  function updateCamera() {
+    camera.position.x = camDist * Math.sin(camAngleY) * Math.cos(camAngleX);
+    camera.position.y = camDist * Math.sin(camAngleX);
+    camera.position.z = camDist * Math.cos(camAngleY) * Math.cos(camAngleX);
+    camera.lookAt(0, 0, 0);
+  }
+
+  // ---------- Globe ----------
+  const EARTH_R = 2;
+  const globeGroup = new THREE.Group();
+  scene.add(globeGroup);
+
+  const graticuleMat = new THREE.LineBasicMaterial({ color: EARTH, transparent: true, opacity: 0.32 });
+
+  for (let lat = -75; lat <= 75; lat += 15) {
+    const phi = (90 - lat) * (Math.PI / 180);
+    const r = EARTH_R * Math.sin(phi);
+    const y = EARTH_R * Math.cos(phi);
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const theta = (i / 64) * Math.PI * 2;
+      pts.push(new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    globeGroup.add(new THREE.Line(geo, graticuleMat));
+  }
+
+  for (let lon = 0; lon < 360; lon += 15) {
+    const theta = lon * (Math.PI / 180);
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const phi = (i / 64) * Math.PI;
+      const r = EARTH_R * Math.sin(phi);
+      const y = EARTH_R * Math.cos(phi);
+      pts.push(new THREE.Vector3(r * Math.cos(theta), y, r * Math.sin(theta)));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    globeGroup.add(new THREE.Line(geo, graticuleMat));
+  }
+
+  const coreGeo = new THREE.SphereGeometry(EARTH_R * 0.985, 48, 48);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x241d06, transparent: true, opacity: 0.88 });
+  globeGroup.add(new THREE.Mesh(coreGeo, coreMat));
+
+  const rimGeo = new THREE.SphereGeometry(EARTH_R * 1.01, 48, 48);
+  const rimMat = new THREE.MeshBasicMaterial({ color: EARTH, transparent: true, opacity: 0.06, side: THREE.BackSide });
+  globeGroup.add(new THREE.Mesh(rimGeo, rimMat));
+
+  // ---------- Bold continent outlines ----------
+  // Simplified, low-vertex approximations of continent coastlines (lon, lat
+  // degree pairs) - stylized for a wireframe globe rather than GIS-accurate.
+  function latLonToVec3(lat, lon, r) {
+    const phi = (90 - lat) * (Math.PI / 180);
+    const theta = (lon + 180) * (Math.PI / 180);
+    return new THREE.Vector3(
+      -r * Math.sin(phi) * Math.cos(theta),
+      r * Math.cos(phi),
+      r * Math.sin(phi) * Math.sin(theta)
+    );
+  }
+
+  const CONTINENTS = {
+    'North America': [
+      [70,-165],[68,-145],[60,-140],[55,-130],[48,-125],[40,-124],[32,-117],
+      [25,-110],[20,-105],[16,-95],[18,-88],[21,-87],[25,-97],[29,-95],
+      [30,-88],[25,-80],[30,-81],[35,-76],[40,-74],[43,-70],[45,-67],
+      [47,-60],[50,-56],[55,-58],[60,-65],[65,-75],[68,-85],[70,-95],
+      [72,-110],[70,-130],[70,-155],[70,-165]
+    ],
+    'South America': [
+      [12,-72],[10,-75],[5,-77],[0,-80],[-5,-81],[-10,-78],[-18,-70],
+      [-23,-70],[-30,-71],[-38,-73],[-45,-73],[-52,-70],[-55,-68],[-52,-64],
+      [-45,-65],[-38,-58],[-33,-53],[-25,-48],[-18,-39],[-10,-36],[-3,-40],
+      [2,-50],[5,-55],[8,-60],[10,-65],[12,-72]
+    ],
+    'Africa': [
+      [37,10],[33,-5],[27,-13],[20,-17],[14,-17],[9,-14],[5,-9],[4,-2],
+      [6,5],[4,9],[-2,9],[-5,12],[-10,13],[-18,12],[-22,14],[-28,16],
+      [-34,19],[-34,25],[-30,31],[-26,33],[-20,35],[-12,40],[-5,39],
+      [0,42],[5,48],[10,51],[12,44],[15,40],[18,38],[22,37],[27,34],
+      [31,32],[32,25],[31,20],[33,15],[37,10]
+    ],
+    'Europe': [
+      [71,25],[68,20],[65,14],[63,8],[58,6],[54,8],[51,3],[48,-4],
+      [44,-1],[43,3],[40,-9],[37,-9],[36,-5],[38,0],[41,3],[44,8],
+      [41,15],[38,15],[40,18],[42,19],[45,13],[45,14],[48,17],[50,22],
+      [52,28],[55,30],[60,30],[65,25],[68,20],[71,25]
+    ],
+    'Asia': [
+      [77,60],[73,80],[75,100],[73,140],[68,170],[62,178],[58,160],
+      [55,155],[50,140],[45,135],[40,130],[35,129],[33,126],[30,121],
+      [23,113],[18,108],[10,104],[8,98],[13,93],[20,92],[22,88],[20,83],
+      [15,80],[10,77],[8,77],[12,68],[20,63],[25,61],[27,55],[30,49],
+      [35,48],[38,49],[42,47],[45,48],[47,52],[50,55],[55,58],[60,55],
+      [65,55],[70,58],[77,60]
+    ],
+    'Australia': [
+      [-11,131],[-12,136],[-12,142],[-16,145],[-19,146],[-24,153],
+      [-28,153],[-33,151],[-38,147],[-38,141],[-35,136],[-32,133],
+      [-31,129],[-33,124],[-34,115],[-31,115],[-25,113],[-20,114],
+      [-16,122],[-14,126],[-11,131]
+    ]
+  };
+
+  const continentGroup = new THREE.Group();
+  globeGroup.add(continentGroup);
+
+  // Rendered as tube meshes rather than plain Lines so the outline reads
+  // as genuinely bold at any zoom level (WebGL line width is capped at 1px
+  // on most platforms regardless of the `linewidth` material property).
+  Object.values(CONTINENTS).forEach((coords) => {
+    const pts = coords.map(([lat, lon]) => latLonToVec3(lat, lon, EARTH_R * 1.012));
+    const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.1);
+    const tubeGeo = new THREE.TubeGeometry(curve, coords.length * 4, 0.014, 6, true);
+    const tubeMat = new THREE.MeshBasicMaterial({ color: CONTINENT });
+    continentGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
+  });
+
+  // Background starfield
+  const starGeo = new THREE.BufferGeometry();
+  const starCount = 900;
+  const starPos = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const r = 40 + Math.random() * 60;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    starPos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+    starPos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    starPos[i*3+2] = r * Math.cos(phi);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0x6f8a94, size: 0.05 });
+  scene.add(new THREE.Points(starGeo, starMat));
+
+  // ---------- Satellite data (mock orbital elements, artistically sped up) ----------
+  const SAT_DEFS = [
+    { name: 'HORIZON-3',   kind: 'leo', radius: 2.9, inclination: 35,  speed: 0.35, phase: 0.0 },
+    { name: 'MERIDIAN-7',  kind: 'leo', radius: 3.3, inclination: 68,  speed: 0.22, phase: 1.8 },
+    { name: 'VANTAGE-1',   kind: 'leo', radius: 2.6, inclination: 12,  speed: 0.48, phase: 3.2 },
+    { name: 'AEGIS-9',     kind: 'leo', radius: 3.7, inclination: 90,  speed: 0.16, phase: 4.5 },
+    { name: 'LATTICE-4',   kind: 'leo', radius: 3.1, inclination: 51,  speed: 0.28, phase: 2.4 },
+  ];
+
+  // JWST: not Earth-orbiting in reality (it orbits the Sun-Earth L2 point,
+  // ~1.5 million km out), so an accurate-distance model wouldn't fit on
+  // this globe. What IS kept accurate here is its angular speed: JWST
+  // completes one halo orbit roughly every 6 months, and this uses that
+  // real period (not the artistic speed-up applied to the mock LEO
+  // satellites above) - so on a real clock, it will appear to move only
+  // very slightly even over a long session. That slowness is the accurate
+  // behavior, not a bug.
+  const JWST_PERIOD_SECONDS = 180 * 24 * 3600; // ~6 months
+  const JWST_RADIUS = 5.6;
+  const JWST_INCLINATION = 23.4; // stylized, ecliptic-plane-ish tilt
+
+  const satellites = [];
+  let jwst = null;
+
+  function orbitPositionAt(def, t) {
+    const angle = def.phase + t * def.speed;
+    const incl = def.inclination * (Math.PI / 180);
+    const x0 = def.radius * Math.cos(angle);
+    const z0 = def.radius * Math.sin(angle);
+    const y = z0 * Math.sin(incl);
+    const z = z0 * Math.cos(incl);
+    return new THREE.Vector3(x0, y, z);
+  }
+
+  function jwstPositionAt(realElapsedSeconds) {
+    const angularSpeed = (2 * Math.PI) / JWST_PERIOD_SECONDS;
+    const angle = angularSpeed * realElapsedSeconds; // real-time accurate
+    const incl = JWST_INCLINATION * (Math.PI / 180);
+    const x0 = JWST_RADIUS * Math.cos(angle);
+    const z0 = JWST_RADIUS * Math.sin(angle);
+    const y = z0 * Math.sin(incl);
+    const z = z0 * Math.cos(incl);
+    return new THREE.Vector3(x0, y, z);
+  }
+
+  function makeImageSet(seedName) {
+    const cats = ['spiral', 'elliptical', 'anomaly'];
+    const out = [];
+    let seed = 0;
+    for (let i = 0; i < seedName.length; i++) seed += seedName.charCodeAt(i);
+    for (let i = 0; i < 6; i++) {
+      const cat = cats[(seed + i * 7) % 3];
+      const conf = 55 + ((seed + i * 13) % 44);
+      const hoursAgo = (i * 3 + (seed % 5)) + 1;
+      out.push({ category: cat, confidence: conf, timeLabel: 'T-' + hoursAgo + 'H', thumbnailUrl: null, isReal: false });
+    }
+    return out;
+  }
+
+  // ---------- Live JWST classification feed ----------
+  // Reads results produced by classifier-pipeline/fetch_and_classify.py
+  // (run on a schedule via GitHub Actions) in the galaxy-classifier repo.
+  // Falls back silently to the mock placeholder data above if the fetch
+  // fails (e.g. viewing this file locally via file://, or before the
+  // pipeline has run for the first time yet).
+  //
+  // IMPORTANT: replace these two URLs with your own repo's raw GitHub
+  // paths once you've pushed classifier-pipeline/ and data/ there.
+  const JWST_RESULTS_URL = 'https://raw.githubusercontent.com/PrimordialProton/galaxy-classifier-test/main/data/jwst_results.json';
+  const JWST_THUMB_BASE = 'https://raw.githubusercontent.com/PrimordialProton/galaxy-classifier-test/main/data/';
+
+  async function fetchJwstResults() {
+    try {
+      const res = await fetch(JWST_RESULTS_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error('bad response: ' + res.status);
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) return;
+
+      jwst.images = data.map((item) => ({
+        category: item.category,
+        confidence: Math.round(item.confidence),
+        timeLabel: (item.processed_at || '').replace('T', ' ').slice(0, 16),
+        thumbnailUrl: JWST_THUMB_BASE + item.thumbnail,
+        targetName: item.target_name,
+        isReal: true,
+      }));
+      jwst.isLive = true;
+
+      if (selectedIdx === jwst.idx) {
+        renderFilters();
+        renderImages();
+        detailEyebrow.textContent = 'DEEP SPACE OBSERVATORY — LIVE FEED';
+      }
+    } catch (e) {
+      console.warn('Could not load live JWST results, showing placeholder data instead:', e);
+    }
+  }
+
+  SAT_DEFS.forEach((def, idx) => {
+    const pathPts = [];
+    for (let i = 0; i <= 128; i++) {
+      pathPts.push(orbitPositionAt(def, (i / 128) * (2 * Math.PI / def.speed)));
+    }
+    const pathGeo = new THREE.BufferGeometry().setFromPoints(pathPts);
+    const pathMat = new THREE.LineBasicMaterial({ color: CYAN, transparent: true, opacity: 0.15 });
+    const pathLine = new THREE.Line(pathGeo, pathMat);
+    scene.add(pathLine);
+
+    const dotGeo = new THREE.SphereGeometry(0.045, 12, 12);
+    const dotMat = new THREE.MeshBasicMaterial({ color: CYAN });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    scene.add(dot);
+
+    const glowGeo = new THREE.SphereGeometry(0.09, 12, 12);
+    const glowMat = new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.25 });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    scene.add(glow);
+
+    satellites.push({
+      def, dot, glow, pathLine, pathMat, dotMat, glowMat, idx, selected: false,
+      images: makeImageSet(def.name), isJwst: false
+    });
+  });
+
+  // JWST path (full halo ellipse, shown for context even though it barely moves)
+  {
+    const pathPts = [];
+    for (let i = 0; i <= 128; i++) {
+      pathPts.push(jwstPositionAt((i / 128) * JWST_PERIOD_SECONDS));
+    }
+    const pathGeo = new THREE.BufferGeometry().setFromPoints(pathPts);
+    const pathMat = new THREE.LineBasicMaterial({ color: SILVER, transparent: true, opacity: 0.18 });
+    const pathLine = new THREE.Line(pathGeo, pathMat);
+    scene.add(pathLine);
+
+    const dotGeo = new THREE.SphereGeometry(0.06, 14, 14);
+    const dotMat = new THREE.MeshBasicMaterial({ color: SILVER });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    scene.add(dot);
+
+    const glowGeo = new THREE.SphereGeometry(0.13, 14, 14);
+    const glowMat = new THREE.MeshBasicMaterial({ color: SILVER, transparent: true, opacity: 0.3 });
+    const glow = new THREE.Mesh(glowGeo, glowMat);
+    scene.add(glow);
+
+    jwst = {
+      def: { name: 'JWST // L2' }, dot, glow, pathLine, pathMat, dotMat, glowMat,
+      idx: SAT_DEFS.length, selected: false,
+      images: makeImageSet('JWSTL2xyz'), isJwst: true, isLive: false
+    };
+    satellites.push(jwst);
+  }
+
+  // Try to load real classified data immediately, then refresh periodically
+  // so a page left open picks up newly-classified images without a reload.
+  fetchJwstResults();
+  setInterval(fetchJwstResults, 5 * 60 * 1000);
+
+  // ---------- Solar system (toggleable, true relative scale) ----------
+  // Single consistent scale factor throughout: same km-per-unit ratio as
+  // Earth (radius 2 scene units = 6371 km), applied to both SIZE and
+  // DISTANCE for every body. That consistency is exactly what makes "big
+  // things look small when far away" a genuine result of perspective
+  // rather than something faked - e.g. the Sun really is ~109x Earth's
+  // radius AND ~23,455 Earth-radii away, and rendering both of those
+  // numbers with the same ratio reproduces its real ~0.53 degree apparent
+  // size in the sky.
+  //
+  // What's simplified: each body is placed at its real average distance
+  // from Earth, but at an arbitrary illustrative angle around the sky
+  // (not a live ephemeris calculation of where it actually is right now).
+  const KM_PER_UNIT = 6371 / 2; // Earth anchor: 2 units = 6371 km
+  const AU_KM = 149597870;
+
+  function kmToUnits(km) { return km / KM_PER_UNIT; }
+
+  const CELESTIAL_DEFS = [
+    { name: 'MOON', kind: 'moon', radiusKm: 1737.4, distanceKm: 384400, azimuthDeg: 40, color: SILVER,
+      fact: 'Distance: 384,400 km (~60 Earth radii)' },
+    { name: 'MERCURY', kind: 'planet', radiusKm: 2439.7, distanceKm: 0.61 * AU_KM, azimuthDeg: 100, color: 0xb0a89a,
+      fact: 'Distance: ~91.3M km (typical, varies with orbital position)' },
+    { name: 'VENUS', kind: 'planet', radiusKm: 6051.8, distanceKm: 0.28 * AU_KM, azimuthDeg: 160, color: 0xe8c97a,
+      fact: 'Distance: ~41.9M km - Earth\u2019s closest planetary neighbor on average' },
+    { name: 'SUN', kind: 'sun', radiusKm: 696000, distanceKm: 1.0 * AU_KM, azimuthDeg: 0, color: 0xffcf40,
+      fact: 'Distance: 1 AU = ~149.6M km' },
+    { name: 'MARS', kind: 'planet', radiusKm: 3389.5, distanceKm: 0.52 * AU_KM, azimuthDeg: 220, color: 0xc1440e,
+      fact: 'Distance: ~77.8M km (typical)' },
+    { name: 'JUPITER', kind: 'planet', radiusKm: 69911, distanceKm: 4.2 * AU_KM, azimuthDeg: 260, color: 0xd8ae82,
+      fact: 'Radius alone is ~11x Earth\u2019s' },
+    { name: 'SATURN', kind: 'planet', radiusKm: 58232, distanceKm: 8.58 * AU_KM, azimuthDeg: 300, color: 0xead6a8,
+      fact: 'Distance: ~1.28 billion km' },
+    { name: 'URANUS', kind: 'planet', radiusKm: 25362, distanceKm: 18.2 * AU_KM, azimuthDeg: 330, color: 0x9fe0e0,
+      fact: 'Distance: ~2.72 billion km' },
+    { name: 'NEPTUNE', kind: 'planet', radiusKm: 24622, distanceKm: 29.05 * AU_KM, azimuthDeg: 15, color: 0x4f6fe0,
+      fact: 'Distance: ~4.35 billion km - about 29,000x farther than the Moon' },
+  ];
+
+  const celestialGroup = new THREE.Group();
+  celestialGroup.visible = false;
+  scene.add(celestialGroup);
+  const celestialBodies = [];
+
+  CELESTIAL_DEFS.forEach((def) => {
+    const radiusUnits = Math.max(kmToUnits(def.radiusKm), 0.15); // floor so tiny bodies stay clickable
+    const distanceUnits = kmToUnits(def.distanceKm);
+    const theta = def.azimuthDeg * (Math.PI / 180);
+    // Slight inclination variety so bodies aren't perfectly coplanar / overlapping
+    const incl = (def.kind === 'moon' ? 5 : (def.azimuthDeg % 7) - 3) * (Math.PI / 180);
+    const pos = new THREE.Vector3(
+      distanceUnits * Math.cos(theta) * Math.cos(incl),
+      distanceUnits * Math.sin(incl),
+      distanceUnits * Math.sin(theta) * Math.cos(incl)
+    );
+
+    const geo = new THREE.SphereGeometry(radiusUnits, 24, 24);
+    const mat = new THREE.MeshBasicMaterial({ color: def.color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(pos);
+    celestialGroup.add(mesh);
+
+    // A faint marker at a fixed small screen-ish size helps you find tiny
+    // distant bodies before you've zoomed in enough for their true size
+    // to be visible at all.
+    const markerGeo = new THREE.SphereGeometry(Math.max(radiusUnits * 1.4, distanceUnits * 0.004), 8, 8);
+    const markerMat = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.35 });
+    const marker = new THREE.Mesh(markerGeo, markerMat);
+    marker.position.copy(pos);
+    celestialGroup.add(marker);
+
+    celestialBodies.push({ def, mesh, marker, pos, radiusUnits, distanceUnits, isCelestial: true });
+  });
+
+  // On-screen text labels for celestial bodies, positioned each frame by
+  // projecting each body's 3D position to 2D screen space - simplest
+  // reliable way to keep a label pinned to a moving 3D point without a
+  // sprite/texture approach.
+  const labelsLayer = document.getElementById('celestial-labels');
+  celestialBodies.forEach((body) => {
+    const el = document.createElement('div');
+    el.className = 'celestial-label';
+    el.textContent = body.def.name;
+    el.style.display = 'none';
+    labelsLayer.appendChild(el);
+    body.labelEl = el;
+  });
+
+  const celestialListEl = document.getElementById('celestial-list-items');
+  celestialBodies.forEach((body, i) => {
+    const item = document.createElement('div');
+    item.className = 'sat-item';
+    item.id = 'celestial-item-' + i;
+    item.innerHTML = '<span class="sat-dot"></span><span>' + body.def.name + '</span>';
+    item.addEventListener('click', () => selectCelestialBody(i));
+    celestialListEl.appendChild(item);
+  });
+
+  let selectedCelestialIdx = null;
+
+  function selectCelestialBody(i) {
+    if (selectedIdx !== null) {
+      const prev = satellites.find(s => s.idx === selectedIdx);
+      prev.selected = false;
+      document.getElementById('list-item-' + selectedIdx)?.classList.remove('active');
+      prev.pathMat.color.set(prev.isJwst ? SILVER : CYAN);
+      prev.pathMat.opacity = prev.isJwst ? 0.18 : 0.15;
+      selectedIdx = null;
+    }
+    if (selectedCelestialIdx !== null) {
+      document.getElementById('celestial-item-' + selectedCelestialIdx)?.classList.remove('active');
+    }
+    selectedCelestialIdx = i;
+    document.getElementById('celestial-item-' + i).classList.add('active');
+
+    const body = celestialBodies[i];
+    detailEyebrow.textContent = 'CELESTIAL BODY \u2014 TRUE SCALE';
+    detailName.textContent = body.def.name;
+
+    document.getElementById('data-source-note').textContent = body.def.fact;
+
+    // Celestial bodies show real astronomical stats, not the satellite
+    // image-classification UI, so swap the panel content accordingly.
+    document.querySelector('.stat-grid').style.display = 'grid';
+    statLat.textContent = '\u2014';
+    statLon.textContent = '\u2014';
+    statAlt.textContent = Math.round(body.def.distanceKm).toLocaleString() + ' KM';
+    statVel.textContent = (body.radiusUnits >= 1 ? (body.def.radiusKm).toLocaleString() + ' KM (R)' : '\u2014');
+
+    filterRow.innerHTML = '';
+    imageGrid.innerHTML = '';
+    panel.classList.add('open');
+    setSidePanelsHidden(true);
+  }
+
+  const solarToggle = document.getElementById('solar-toggle');
+  const celestialListPanel = document.getElementById('celestial-list');
+  const scaleNote = document.getElementById('scale-note');
+  const trackedListPanel = document.getElementById('tracked-list');
+  let solarVisible = false;
+
+  // The side list panels and the sliding detail panel can occupy the same
+  // screen region (especially the celestial-body list, which is anchored
+  // to the same right edge as the detail panel) - on short/narrow screens
+  // this could visually cover the detail panel's close button, making it
+  // unreachable. Hiding the lists while a detail is open removes the
+  // overlap entirely rather than relying on stacking order alone.
+  function setSidePanelsHidden(hidden) {
+    trackedListPanel.classList.toggle('auto-hidden', hidden);
+    if (solarVisible) {
+      celestialListPanel.classList.toggle('auto-hidden', hidden);
+      scaleNote.classList.toggle('auto-hidden', hidden);
+    }
+  }
+
+  solarToggle.addEventListener('click', () => {
+    solarVisible = !solarVisible;
+    celestialGroup.visible = solarVisible;
+    solarToggle.classList.toggle('on', solarVisible);
+    solarToggle.textContent = 'SOLAR SYSTEM: ' + (solarVisible ? 'ON' : 'OFF');
+    celestialListPanel.style.display = solarVisible ? 'block' : 'none';
+    scaleNote.classList.toggle('visible', solarVisible);
+    celestialBodies.forEach((body) => {
+      body.labelEl.style.display = solarVisible ? 'block' : 'none';
+    });
+  });
+
+  // ---------- Raycasting for clicks ----------
+  const raycaster = new THREE.Raycaster();
+  const mouseNDC = new THREE.Vector2();
+
+  canvas.addEventListener('click', (e) => {
+    if (dragMoved) { dragMoved = false; return; }
+    mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouseNDC, camera);
+
+    const dots = satellites.map(s => s.dot);
+    const hits = raycaster.intersectObjects(dots);
+    if (hits.length > 0) {
+      const hitDot = hits[0].object;
+      const sat = satellites.find(s => s.dot === hitDot);
+      selectSatellite(sat.idx);
+      return;
+    }
+
+    if (celestialGroup.visible) {
+      const markers = celestialBodies.map(b => b.marker);
+      const cHits = raycaster.intersectObjects(markers);
+      if (cHits.length > 0) {
+        const hitMarker = cHits[0].object;
+        const idx = celestialBodies.findIndex(b => b.marker === hitMarker);
+        if (idx !== -1) selectCelestialBody(idx);
+      }
+    }
+  });
+
+  // ---------- UI: satellite list ----------
+  const listEl = document.getElementById('sat-list-items');
+  satellites.forEach((sat) => {
+    const item = document.createElement('div');
+    item.className = 'sat-item' + (sat.isJwst ? ' jwst' : '');
+    item.id = 'list-item-' + sat.idx;
+    item.innerHTML = '<span class="sat-dot"></span><span>' + sat.def.name + '</span>';
+    item.addEventListener('click', () => selectSatellite(sat.idx));
+    listEl.appendChild(item);
+  });
+
+  // ---------- UI: detail panel ----------
+  const panel = document.getElementById('detail-panel');
+  const detailEyebrow = document.getElementById('detail-eyebrow');
+  const detailName = document.getElementById('detail-name');
+  const statLat = document.getElementById('stat-lat');
+  const statLon = document.getElementById('stat-lon');
+  const statAlt = document.getElementById('stat-alt');
+  const statVel = document.getElementById('stat-vel');
+  const imageGrid = document.getElementById('image-grid');
+  const filterRow = document.getElementById('filter-row');
+  const closeBtn = document.getElementById('detail-close');
+
+  let selectedIdx = null;
+  let activeFilter = 'all';
+
+  const FILTERS = ['all', 'spiral', 'elliptical', 'anomaly'];
+
+  function renderFilters() {
+    filterRow.innerHTML = '';
+    FILTERS.forEach((f) => {
+      const chip = document.createElement('button');
+      chip.className = 'filter-chip' + (f === activeFilter ? ' active' : '');
+      chip.textContent = f.toUpperCase();
+      chip.addEventListener('click', () => {
+        activeFilter = f;
+        renderFilters();
+        renderImages();
+      });
+      filterRow.appendChild(chip);
+    });
+  }
+
+  function renderImages() {
+    const sat = satellites.find(s => s.idx === selectedIdx);
+    if (!sat) return;
+    imageGrid.innerHTML = '';
+    const items = sat.images.filter(im => activeFilter === 'all' || im.category === activeFilter);
+    items.forEach((im) => {
+      const tile = document.createElement('div');
+      tile.className = 'image-tile';
+      const hue = im.category === 'spiral' ? CYAN : im.category === 'elliptical' ? AMBER : MAGENTA;
+      const rgb = hue===CYAN ? '0,229,255' : hue===AMBER ? '255,176,32' : '255,45,120';
+      if (im.thumbnailUrl) {
+        tile.style.backgroundImage = 'linear-gradient(rgba(5,7,10,0.15), rgba(5,7,10,0.55)), url(' + im.thumbnailUrl + ')';
+        tile.style.backgroundSize = 'cover';
+        tile.style.backgroundPosition = 'center';
+      } else {
+        tile.style.background = 'linear-gradient(135deg, rgba(' + rgb + ',0.14), rgba(5,7,10,0.4))';
+      }
+      tile.innerHTML =
+        '<div class="tile-top"><span class="tile-label ' + im.category + '">' + im.category.toUpperCase() + '</span>' +
+        '<span class="tile-confidence">' + im.confidence + '%</span></div>' +
+        '<span class="tile-time">' + (im.targetName ? im.targetName + ' · ' : '') + im.timeLabel + '</span>';
+      imageGrid.appendChild(tile);
+    });
+  }
+
+  function selectSatellite(idx) {
+    if (selectedCelestialIdx !== null) {
+      document.getElementById('celestial-item-' + selectedCelestialIdx)?.classList.remove('active');
+      selectedCelestialIdx = null;
+    }
+    if (selectedIdx !== null) {
+      const prev = satellites.find(s => s.idx === selectedIdx);
+      prev.selected = false;
+      document.getElementById('list-item-' + selectedIdx).classList.remove('active');
+      prev.pathMat.color.set(prev.isJwst ? SILVER : CYAN);
+      prev.pathMat.opacity = prev.isJwst ? 0.18 : 0.15;
+    }
+    selectedIdx = idx;
+    const sat = satellites.find(s => s.idx === idx);
+    sat.selected = true;
+    document.getElementById('list-item-' + idx).classList.add('active');
+    sat.pathMat.color.set(MAGENTA);
+    sat.pathMat.opacity = 0.55;
+
+    detailEyebrow.textContent = sat.isJwst
+      ? (sat.isLive ? 'DEEP SPACE OBSERVATORY — LIVE FEED' : 'DEEP SPACE OBSERVATORY')
+      : 'SELECTED OBJECT (DEMO DATA)';
+    detailName.textContent = sat.def.name;
+
+    const note = document.getElementById('data-source-note');
+    if (sat.isJwst && sat.isLive) {
+      note.textContent = 'Live data: real JWST previews from MAST, classified by the trained model. Predictions are real model output on real new images; accuracy on this out-of-training-distribution imagery has not been separately validated.';
+    } else if (sat.isJwst) {
+      note.textContent = 'Showing placeholder data - the classifier pipeline has not produced results yet (or they could not be loaded). Once classifier-pipeline/fetch_and_classify.py has run at least once, this panel switches to real classified imagery automatically.';
+    } else {
+      note.textContent = sat.def.name + ' is a fictional demo satellite - its image tiles are placeholder data, not real imagery.';
+    }
+
+    activeFilter = 'all';
+    renderFilters();
+    renderImages();
+
+    panel.classList.add('open');
+    setSidePanelsHidden(true);
+  }
+
+  closeBtn.addEventListener('click', () => {
+    panel.classList.remove('open');
+    setSidePanelsHidden(false);
+    if (selectedIdx !== null) {
+      const sat = satellites.find(s => s.idx === selectedIdx);
+      document.getElementById('list-item-' + selectedIdx).classList.remove('active');
+      sat.pathMat.color.set(sat.isJwst ? SILVER : CYAN);
+      sat.pathMat.opacity = sat.isJwst ? 0.18 : 0.15;
+      sat.selected = false;
+      selectedIdx = null;
+    }
+    if (selectedCelestialIdx !== null) {
+      document.getElementById('celestial-item-' + selectedCelestialIdx)?.classList.remove('active');
+      selectedCelestialIdx = null;
+    }
+  });
+
+  // ---------- Timezone control ----------
+  const tzSelect = document.getElementById('tz-select');
+  const tzLabel = document.getElementById('tz-label');
+  const clockEl = document.getElementById('clock');
+
+  for (let off = -12; off <= 14; off++) {
+    const opt = document.createElement('option');
+    opt.value = off;
+    opt.textContent = 'UTC' + (off >= 0 ? '+' : '') + off;
+    if (off === 0) opt.selected = true;
+    tzSelect.appendChild(opt);
+  }
+
+  let tzOffset = 0;
+  tzSelect.addEventListener('change', () => {
+    tzOffset = parseInt(tzSelect.value, 10);
+    tzLabel.textContent = 'UTC' + (tzOffset >= 0 ? '+' : '') + tzOffset;
+    tickClock();
+  });
+
+  function tickClock() {
+    const now = new Date(Date.now() + tzOffset * 3600 * 1000);
+    const hh = String(now.getUTCHours()).padStart(2, '0');
+    const mm = String(now.getUTCMinutes()).padStart(2, '0');
+    const ss = String(now.getUTCSeconds()).padStart(2, '0');
+    clockEl.textContent = hh + ':' + mm + ':' + ss;
+  }
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  // ---------- Animation loop ----------
+  const clock3d = new THREE.Clock();
+  const sessionStartMs = Date.now();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const t = clock3d.getElapsedTime();
+    const realElapsedSeconds = (Date.now() - sessionStartMs) / 1000;
+
+    globeGroup.rotation.y = t * 0.015;
+
+    satellites.forEach((sat) => {
+      const pos = sat.isJwst ? jwstPositionAt(realElapsedSeconds) : orbitPositionAt(sat.def, t);
+      sat.dot.position.copy(pos);
+      sat.glow.position.copy(pos);
+
+      if (sat.selected) {
+        sat.dotMat.color.set(MAGENTA);
+        sat.glowMat.color.set(MAGENTA);
+        sat.glowMat.opacity = 0.4 + Math.sin(t * 4) * 0.15;
+      } else {
+        const base = sat.isJwst ? SILVER : CYAN;
+        sat.dotMat.color.set(base);
+        sat.glowMat.color.set(base);
+        sat.glowMat.opacity = sat.isJwst ? 0.3 : 0.25;
+      }
+
+      if (selectedIdx === sat.idx) {
+        const radius = sat.isJwst ? JWST_RADIUS : sat.def.radius;
+        statLat.textContent = (Math.asin(pos.y / radius) * 180 / Math.PI).toFixed(2) + '°';
+        statLon.textContent = ((Math.atan2(pos.z, pos.x) * 180 / Math.PI + (sat.isJwst ? 0 : t * 2)) % 360 - 180).toFixed(2) + '°';
+        if (sat.isJwst) {
+          statAlt.textContent = '~1,500,000 KM';
+          statVel.textContent = '~0.001 KM/S';
+        } else {
+          statAlt.textContent = Math.round((sat.def.radius - EARTH_R) * 1000) + ' KM';
+          statVel.textContent = (sat.def.speed * 7.8).toFixed(2) + ' KM/S';
+        }
+      }
+    });
+
+    updateCamera();
+    renderer.render(scene, camera);
+
+    if (celestialGroup.visible) {
+      const halfW = window.innerWidth / 2;
+      const halfH = window.innerHeight / 2;
+      celestialBodies.forEach((body) => {
+        const v = body.pos.clone().project(camera);
+        const onScreen = v.z < 1 &&
+          v.x > -1.15 && v.x < 1.15 && v.y > -1.15 && v.y < 1.15;
+        if (!onScreen) {
+          body.labelEl.style.display = 'none';
+          return;
+        }
+        body.labelEl.style.display = 'block';
+        body.labelEl.style.left = (v.x * halfW + halfW) + 'px';
+        body.labelEl.style.top = (-v.y * halfH + halfH) + 'px';
+      });
+    }
+  }
+  animate();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+</script>
+</body>
+</html>
