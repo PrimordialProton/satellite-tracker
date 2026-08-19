@@ -455,7 +455,8 @@
 
   .tile-label.spiral { color: var(--cyan); border: 1px solid var(--cyan-dim); }
   .tile-label.elliptical { color: var(--amber); border: 1px solid rgba(255,176,32,0.35); }
-  .tile-label.anomaly { color: var(--magenta); border: 1px solid rgba(255,45,120,0.35); }
+  .tile-label.other { color: var(--magenta); border: 1px solid rgba(255,45,120,0.35); }
+  .tile-label.empty_field { color: var(--text-dim); border: 1px solid var(--cyan-dim); }
 
   .tile-confidence {
     font-size: 9px;
@@ -859,7 +860,7 @@
   }
 
   function makeImageSet(seedName) {
-    const cats = ['spiral', 'elliptical', 'anomaly'];
+    const cats = ['spiral', 'elliptical', 'other'];
     const out = [];
     let seed = 0;
     for (let i = 0; i < seedName.length; i++) seed += seedName.charCodeAt(i);
@@ -1222,14 +1223,14 @@
   let selectedIdx = null;
   let activeFilter = 'all';
 
-  const FILTERS = ['all', 'spiral', 'elliptical', 'anomaly'];
+  const FILTERS = ['all', 'spiral', 'elliptical', 'other', 'empty_field'];
 
   function renderFilters() {
     filterRow.innerHTML = '';
     FILTERS.forEach((f) => {
       const chip = document.createElement('button');
       chip.className = 'filter-chip' + (f === activeFilter ? ' active' : '');
-      chip.textContent = f.toUpperCase();
+      chip.textContent = f.toUpperCase().replace('_', ' ');
       chip.addEventListener('click', () => {
         activeFilter = f;
         renderFilters();
@@ -1247,8 +1248,11 @@
     items.forEach((im) => {
       const tile = document.createElement('div');
       tile.className = 'image-tile';
-      const hue = im.category === 'spiral' ? CYAN : im.category === 'elliptical' ? AMBER : MAGENTA;
-      const rgb = hue===CYAN ? '0,229,255' : hue===AMBER ? '255,176,32' : '255,45,120';
+      const hue = im.category === 'spiral' ? CYAN
+        : im.category === 'elliptical' ? AMBER
+        : im.category === 'empty_field' ? SILVER
+        : MAGENTA; // 'other'
+      const rgb = hue===CYAN ? '0,229,255' : hue===AMBER ? '255,176,32' : hue===SILVER ? '216,228,232' : '255,45,120';
       if (im.thumbnailUrl) {
         tile.style.backgroundImage = 'linear-gradient(rgba(5,7,10,0.15), rgba(5,7,10,0.55)), url(' + im.thumbnailUrl + ')';
         tile.style.backgroundSize = 'cover';
@@ -1257,7 +1261,7 @@
         tile.style.background = 'linear-gradient(135deg, rgba(' + rgb + ',0.14), rgba(5,7,10,0.4))';
       }
       tile.innerHTML =
-        '<div class="tile-top"><span class="tile-label ' + im.category + '">' + im.category.toUpperCase() + '</span>' +
+        '<div class="tile-top"><span class="tile-label ' + im.category + '">' + im.category.toUpperCase().replace('_', ' ') + '</span>' +
         '<span class="tile-confidence">' + im.confidence + '%</span></div>' +
         '<span class="tile-time">' + (im.targetName ? im.targetName + ' · ' : '') + im.timeLabel + '</span>';
       if (im.thumbnailUrl) {
